@@ -1,18 +1,24 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.2.0 (MINOR: Principle II materially revised, Technology Stack
-  database and testing constraints updated)
+- Version change: 1.2.0 → 1.3.0 (MINOR: one principle added, two principles materially
+  expanded, new Product Scope section, roles expanded)
 - Modified principles:
-  - II. Database Portability → Oracle First, Portable by Design: Oracle is now the engine for
-    development, test and production from the start. PostgreSQL is no longer the MVP engine.
-    The portability rules (ORM only, no engine-specific features, 30-character identifiers,
-    engine chosen by configuration) are retained unchanged so a second engine can be adopted.
-  - X. Performance and Transactional Integrity → EXPLAIN review now happens on Oracle.
-- Added principles: none
-- Added sections: none
+  - IV. Binding Validation and Controlled Inputs → adds the three validations the client
+    institution requires and the legacy lacks: position-backed sales (no short selling),
+    counterparties restricted by product, and non-business-day alerts from the combined
+    holiday calendar.
+  - V. Workflow Integrity and Auditability → adopts the legacy state names (created,
+    confirmed, enriched, validated, released), the four roles, soft and hard warnings,
+    parent/child operations and the instrument lifecycle.
+- Added principles:
+  - XI. Legacy Data Compatibility: field names and semantics that downstream reporting
+    depends on are preserved; new fields are additive.
+- Added sections:
+  - Product Scope & Modules (execution, compliance, settlement; first scope securities)
 - Removed sections: none
-- Technology Stack changes: Oracle Database 23ai Free in a container for development and CI,
-  python-oracledb in thin mode, test suite runs on Oracle. PostgreSQL references removed.
+- Technology Stack changes: roles now include middle office; settlement output format noted.
+- Supporting files added in the same change: docs/README.md, docs/dominio/vision-general.md,
+  docs/glossary.md, CLAUDE.md.
 - Templates: plan/spec/tasks templates read this file at runtime; no edits required.
 - Follow-up TODOs: none
 -->
@@ -20,7 +26,7 @@ Sync Impact Report
 # Investment Desk MVP Constitution
 
 Working name for the product: **IMS** (Investment Management Software), a replacement for a
-Peruvian bank's legacy investment-desk system. Partners: Gabriel (domain owner, bank insider)
+financial institution's legacy investment-desk system. Partners: Gabriel (domain owner, bank insider)
 and César (software owner). First deliverable: a demo-complete MVP of the securities buy/sell
 flow by January 2027.
 
@@ -90,25 +96,52 @@ enforced in the domain and model layer so that an invalid operation cannot be pe
 regardless of how it is submitted; interface-level validation exists only to improve the user
 experience and is never the sole guard. Risk controls (counterparty limits, product warnings,
 maximum tenor, holiday calendars, position checks) are validation rules under this principle.
+Three validations are mandatory in every product because the client institution requires
+them and the legacy system lacks them:
+
+- **Position-backed sales**: a sale MUST reference a held position (an instrument bought and
+  not yet matured or sold) and MUST NOT exceed its available quantity. Short selling is not
+  permitted.
+- **Counterparties restricted by product**: each counterparty is authorized for specific
+  product types, and only authorized counterparties are selectable for an operation.
+- **Business-day awareness**: the calendar combines the local holidays, the holidays of the
+  currency's country and any market the specification names. Operations dated on a
+  non-business day MUST raise a hard warning.
 
 Rationale: the legacy system lets a trader close an operation against an unauthorized
-counterparty because nothing binds the fields together. Removing that class of error is a core
-selling point.
+counterparty, sell a position it does not hold and trade on a holiday because nothing binds
+the fields together. Removing that class of error is a core selling point.
 
 ### V. Workflow Integrity and Auditability
 
-Every operation follows an explicit, specified state machine (at minimum: draft, authorized,
-settled, with cancellation and rejection paths as the specification defines). An operation is
-editable only while it is a draft; once authorized it is immutable except through transitions
-the specification allows. Every state transition and every change to financial data MUST
-record who did it and when. Operations and instruments are never physically deleted; they are
-cancelled or deactivated. Correlativos (sequential identifiers for operations, instruments and
-any other numbered entity) MUST continue the bank's existing sequences, MUST be configurable
-per sequence, and MUST never be reused or reissued. The system MUST retain transaction
-history for at least seven years and MUST support importing history from the legacy system.
+Every operation follows an explicit, specified state machine that keeps the names the desk
+already uses: **created** (editable by its trader), **confirmed** (the trader has finished
+entry; still editable by that trader), **enriched** (approved by the desk head; locked for the
+front office), **validated** (back office has reviewed it and set settlement instructions) and
+**released** (settlement instructions issued). Cancellation and rejection paths are defined by
+each specification. Once enriched an operation is immutable except through the transitions
+the specification allows. Four roles exist and are separated: **trader** (creates, confirms),
+**desk head** (enriches; one per desk), **middle office** (configures limits, warnings and
+calendars; never touches operations) and **back office** (creates and confirms instruments,
+validates and releases operations). Warnings raised by a control are either **hard** (block
+the transition) or **soft** (recorded and shown, transition allowed); the specification of
+each control MUST state which, and hard is the default. Operations MAY be split into child
+operations (for example to settle in the lot multiples a market requires); the parent is
+cancelled, every child carries its own settlement instruction, and the link between them is
+persisted. Instruments have their own lifecycle (**created** by back office, **confirmed** by
+back office) and an operation cannot be confirmed against an unconfirmed instrument.
+
+Every state transition and every change to financial data MUST record who did it and when.
+Operations and instruments are never physically deleted; they are cancelled or deactivated.
+Correlativos (sequential identifiers for operations, instruments and any other numbered
+entity) MUST continue the institution's existing sequences, MUST be configurable per
+sequence, and MUST never be reused or reissued. The system MUST retain transaction history for
+at least seven years and MUST support importing history from the legacy system.
 
 Rationale: regulatory retention, segregation of duties between front, middle and back office,
-and continuity with the bank's existing numbering are non-negotiable conditions for adoption.
+and continuity with the institution's existing numbering and vocabulary are non-negotiable
+conditions for adoption. Keeping the legacy state names lets users and auditors read the new
+system without retraining.
 
 ### VI. On-Premises Simplicity
 
@@ -216,6 +249,48 @@ Rationale: a desk system that double-issues an operation number or lets two trad
 limit at the same instant fails its only job. Query and interface budgets keep the MVP from
 reproducing the 45-minute close that the legacy system is known for.
 
+### XI. Legacy Data Compatibility
+
+The institution's reporting, limit monitoring and reconciliation run on queries against the
+legacy schema: a replica of the operational database feeds a business-intelligence layer, and
+middle office merges execution data with accounting data in a separate reconciliation tool.
+Those consumers will not change. Therefore every field of the legacy system that a
+specification marks as consumed downstream MUST exist in the new schema with the same
+meaning, the same domain of values and the same identifier semantics (correlativos, lot and
+position codes, product and counterparty codes). `docs/glossary.md` records, for every such
+field, its legacy name, its identifier in this system and its downstream consumer. New fields
+are additive and MUST NOT change the meaning of an existing one. A feature MUST provide a
+view, export or query that reproduces the legacy field set so downstream queries can be
+repointed without rewriting. Reworking the data model is explicitly out of scope: the value
+of this system is in the interface, validations and controls on top of a compatible model.
+
+Rationale: the people who own the dashboards and the reconciliation know no other way to
+produce them. A system that breaks their queries will not be adopted regardless of how much
+better its screens are.
+
+## Product Scope & Modules
+
+The product is organized in three modules that mirror the desk's areas, and every
+specification belongs to exactly one of them:
+
+- **Execution** (front office): instruments, counterparties, portfolios, operation entry,
+  confirmation and enrichment, positions.
+- **Compliance** (middle office): limits per issuer, instrument and counterparty; product and
+  tenor rules; calendars; hard and soft warnings evaluated on every transition.
+- **Settlement** (back office): validation, settlement instructions per counterparty,
+  currency and branch, release, and generation of the settlement instruction file in the
+  SWIFT message format the specification defines, for upload to the institution's SWIFT
+  platform.
+
+Instrument types are added one at a time, each as its own feature. The first and largest is
+**securities** (bonds and commercial paper), which represents roughly ninety percent of closed
+operations. The first specification covers buying and selling a security through confirmation
+and enrichment, with the compliance warnings and the settlement module following as separate
+features. Deposits, foreign exchange, repos and futures come after securities, reusing the
+same flow and differing mainly in calculation. Nice-to-have items recorded for later, never
+for the MVP: rule-based settlement instruction defaults, Bloomberg prefill of instruments by
+ISIN, and direct trade import from Bloomberg.
+
 ## Technology Stack & Constraints
 
 - **Backend**: Python 3.12 or later with Django 5.x and Django REST Framework. The OpenAPI
@@ -234,7 +309,7 @@ reproducing the 45-minute close that the legacy system is known for.
   complete until its migrations and tests pass there.
 - **Authentication and authorization**: Django's built-in auth exposed through the API with
   session cookies and CSRF protection on the same origin, and role-based permissions covering
-  at least trader, authorizer (desk head) and back office.
+  the four roles of Principle V: trader, desk head, middle office and back office.
 - **Deployment**: the Vite build output is served as static files by the Django deployable
   behind a single process manager; one artifact, one host, configured by environment
   variables.
@@ -284,4 +359,4 @@ and every code review verifies compliance with the principles above; complexity 
 justified by a specification is rejected. Runtime development guidance for the AI agent lives
 in `CLAUDE.md` and MUST stay consistent with this document.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-10-06
+**Version**: 1.3.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-10-06
