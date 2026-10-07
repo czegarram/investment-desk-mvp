@@ -1,13 +1,18 @@
 <!--
 Sync Impact Report
-- Version change: template → 1.0.0 (initial ratification)
-- Modified principles: none (all placeholders replaced on first adoption)
-- Added sections:
-  - Core Principles I–VII
-  - Technology Stack & Constraints
-  - Development Workflow & Quality Gates
-  - Governance
+- Version change: 1.0.0 → 1.1.0 (MINOR: three principles added, one principle refined,
+  Technology Stack and Workflow sections materially expanded)
+- Modified principles:
+  - VII. Demo-Complete Over Polished → refined: visual polish still deferred, but the
+    performance budgets and atomicity rules of Principle X now apply from the first feature.
+- Added principles:
+  - VIII. Decoupled Interface Through an API Contract
+  - IX. User Experience Standards
+  - X. Performance and Transactional Integrity
+- Added sections: none (existing sections expanded)
 - Removed sections: none
+- Technology Stack changes: interface moved from Django templates + HTMX to a React SPA
+  talking to a Django REST API; frontend testing and performance tooling added.
 - Templates: plan/spec/tasks templates read this file at runtime; no edits required.
 - Follow-up TODOs: none
 -->
@@ -64,6 +69,8 @@ Each calculation MUST state its rounding rule (precision and rounding mode) expl
 and in its specification; implicit rounding and "adjustment parameters" that exist only to make
 totals match are forbidden. Calculations are implemented as pure, side-effect-free functions
 that are unit-tested against worked examples supplied by Gabriel from real operations.
+Financial values cross the API as strings, never as JSON numbers, and the frontend MUST handle
+them with a decimal library; JavaScript `number` is forbidden for financial values.
 
 Rationale: the legacy system's rounding shortcuts are its most damaging defect and the one the
 demo must visibly fix. Credibility with the bank rests on numbers that reconcile to the cent.
@@ -101,11 +108,13 @@ and continuity with the bank's existing numbering are non-negotiable conditions 
 ### VI. On-Premises Simplicity
 
 The application MUST run as a single deployable unit on a server inside the bank's network with
-no dependency on cloud services, external SaaS or internet access at runtime. All runtime
-configuration comes from environment variables. External data providers (Bloomberg and any
-successor) are integrated behind adapter interfaces and are optional: the system MUST remain
-fully usable with manual data entry when no provider is configured. Third-party dependencies are
-kept to the minimum that the specification justifies.
+no dependency on cloud services, external SaaS or internet access at runtime. The built
+frontend is served by the same deployable as the API, so one artifact installs everything. All
+runtime configuration comes from environment variables. External data providers (Bloomberg and
+any successor) are integrated behind adapter interfaces and are optional: the system MUST
+remain fully usable with manual data entry when no provider is configured. Third-party
+dependencies are kept to the minimum that the specification justifies. Frontend assets MUST
+NOT load fonts, scripts or styles from external CDNs.
 
 Rationale: the bank has no cloud, no Wi-Fi and a nine-month cycle to approve any change.
 Anything that complicates installation or needs outside connectivity will not be approved.
@@ -114,35 +123,124 @@ Anything that complicates installation or needs outside connectivity will not be
 
 The MVP MUST cover the complete flow of each specified product end to end (entry, validation,
 authorization, settlement, positions, and the reports the specification names) before any
-part of it is refined. Performance optimization, visual polish and speculative generality are
-deferred until the flow is complete and demonstrable. Transaction volume is low, so simple
-synchronous implementations are preferred. This principle never overrides Principles II
-through V: shortcuts that compromise portability, precision, validation or auditability are
-not acceptable even in a demo.
+part of it is refined. Visual polish and speculative generality are deferred until the flow is
+complete and demonstrable. Transaction volume is low, so simple synchronous implementations
+are preferred. This principle never overrides Principles II through V or Principle X:
+shortcuts that compromise portability, precision, validation, auditability, the performance
+budgets or transactional integrity are not acceptable even in a demo.
 
 Rationale: the first job of the MVP is to win an internal sale against a January–February 2027
 deadline, which requires showing every screen of the flow working, not a subset working
 beautifully.
 
+### VIII. Decoupled Interface Through an API Contract
+
+The user interface is a single-page application that is developed, built and tested
+independently of the backend and communicates with it only through a documented HTTP API
+(REST with JSON; an equivalent protocol MAY replace it only through a constitutional
+amendment). The API is the sole boundary: the frontend MUST NOT depend on server-rendered
+HTML, Django templates, sessions beyond authentication, or any backend internals. The API
+contract is described by an OpenAPI schema generated from the backend; the frontend's client
+types are generated from that schema, and a change to the contract is a change to the
+specification. Every API endpoint MUST enforce authentication, authorization and the
+validation of Principle IV itself, since the interface is replaceable.
+
+Rationale: separating the interface lets the two sides evolve independently, lets the bank's
+IT evaluate the backend on its own, and keeps the door open for other clients (imports,
+reporting tools, a future Bloomberg integration) without touching the core.
+
+### IX. User Experience Standards
+
+All interface work MUST conform to the following standards, and a specification's acceptance
+criteria MUST reference them:
+
+- **Nielsen's ten usability heuristics** are the review checklist for every screen: visible
+  system status, the bank's own vocabulary, user control and undo while in draft, consistency,
+  error prevention, recognition over recall, shortcuts for expert users, minimalist screens,
+  errors that say what happened and how to fix it, and contextual help.
+- **Accessibility**: WCAG 2.2 level AA. Every control is keyboard-operable, every field has a
+  visible label, colour is never the only carrier of meaning, and contrast meets AA.
+- **Keyboard-first data entry**: the trader's forms MUST be completable without a mouse, with a
+  logical tab order, Enter to confirm and Escape to cancel, and type-ahead selection in
+  controlled lists.
+- **Form feedback**: validation errors appear inline next to the field, immediately after the
+  field loses focus or on submit, and never only as a generic banner. Drafts are never lost by
+  navigation or a failed request.
+- **Irreversible actions** (authorize, settle, cancel) require an explicit confirmation that
+  restates what will happen; financial actions are never applied optimistically.
+- **Data-dense views** (positions, operation lists, limits) use sortable, filterable tables
+  with persistent column choices and server-side pagination.
+- **Responsive layout**: every screen MUST be usable from a 1280-pixel desktop down to a
+  768-pixel tablet width with no horizontal scrolling of the page, and read-only views MUST
+  remain usable at phone width. Data entry is optimized for desktop first.
+- **Localization**: the interface is in Spanish, with numbers, currencies and dates formatted
+  for `es-PE`. All user-visible text lives in locale files, never hard-coded in components.
+- **One design system**: all components come from the chosen component library or extend it;
+  one-off styles are a defect.
+
+Rationale: desk users enter dozens of operations a day under time pressure. Consistency,
+keyboard speed and unambiguous errors are productivity, not decoration, and they are the
+visible contrast with the legacy screens in the demo.
+
+### X. Performance and Transactional Integrity
+
+Performance and correctness under concurrency are verified, not assumed:
+
+- **Transactional writes**: every operation that writes more than one row, every state
+  transition, every allocation of a correlativo and every consumption of a limit MUST execute
+  inside a single database transaction (`transaction.atomic()`) and MUST either commit
+  completely or roll back completely. Rows that are read then updated in such a transaction
+  (sequence counters, limit usage, positions) MUST be locked with `select_for_update()`.
+  Concurrency tests MUST prove that two simultaneous requests cannot issue the same
+  correlativo or exceed a limit.
+- **Idempotent writes**: API endpoints that create operations or transition state MUST be safe
+  to retry, so a client retry after a timeout never creates a duplicate.
+- **Query discipline**: every list endpoint is paginated server-side. Tests for every endpoint
+  assert the number of queries, and N+1 patterns are a defect. Every query against the
+  operations, positions or audit tables MUST be covered by an index that a migration creates,
+  and the plan for the feature records the `EXPLAIN` review on PostgreSQL and, when available,
+  Oracle.
+- **Backend budgets**: on the reference deployment, read endpoints respond within 300 ms at the
+  95th percentile and write endpoints within 1 s, measured with the volume described in the
+  specification. Budgets are checked before a feature is declared complete.
+- **Frontend budgets**: the initial route loads within 2.5 s on the bank's desktop hardware
+  over the LAN, interactions respond within 200 ms, and layout does not shift after load
+  (Core Web Vitals thresholds: LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1). Routes are code-split,
+  and tables above 500 rows are virtualized.
+
+Rationale: a desk system that double-issues an operation number or lets two traders exceed a
+limit at the same instant fails its only job. Query and interface budgets keep the MVP from
+reproducing the 45-minute close that the legacy system is known for.
+
 ## Technology Stack & Constraints
 
-- **Language and framework**: Python 3.12 or later with Django 5.x. Dependency and environment
-  management with `uv`; formatting and linting with `ruff`.
+- **Backend**: Python 3.12 or later with Django 5.x and Django REST Framework. The OpenAPI
+  schema is generated with `drf-spectacular` and committed alongside the code. Dependency and
+  environment management with `uv`; formatting and linting with `ruff`.
+- **Frontend**: React 18 or later with TypeScript in strict mode, built with Vite. Server state
+  with TanStack Query, forms with React Hook Form and Zod schemas generated from the OpenAPI
+  contract, routing with React Router, decimals with `decimal.js`. Component library: Ant
+  Design, chosen for its data-dense forms and tables and its built-in Spanish locale. Linting
+  with ESLint and formatting with Prettier.
 - **Database**: PostgreSQL 16 for development and the MVP demo; Oracle Database 19c or later as
   the production target. Both MUST be exercised by the test suite before a release is declared
   Oracle-ready (an Oracle container or instance may be added to CI when available; until then
   Oracle compatibility is reviewed against Principle II at every migration).
-- **Interface**: server-rendered Django templates with HTMX for dependent dropdowns and partial
-  updates. A JSON API MAY be added later for a richer frontend; it MUST reuse the same domain
-  layer and validation.
-- **Authentication and authorization**: Django's built-in auth with role-based permissions
-  covering at least trader, authorizer (desk head) and back office.
+- **Authentication and authorization**: Django's built-in auth exposed through the API with
+  session cookies and CSRF protection on the same origin, and role-based permissions covering
+  at least trader, authorizer (desk head) and back office.
+- **Deployment**: the Vite build output is served as static files by the Django deployable
+  behind a single process manager; one artifact, one host, configured by environment
+  variables.
 - **Language of the product**: the user interface, specifications and domain glossary are in
   Spanish, matching the bank's vocabulary. Code identifiers are in English; `docs/glossary.md`
   maps every Spanish domain term to its English identifier so the two stay aligned.
-- **Testing**: `pytest` with `pytest-django`. Calculation functions and validation rules MUST
-  have unit tests; each product flow MUST have at least one end-to-end test covering the full
-  state machine.
+- **Testing**: backend with `pytest` and `pytest-django`, including query-count assertions and
+  concurrency tests; frontend with Vitest and React Testing Library; end-to-end flows with
+  Playwright against the real API. Calculation functions and validation rules MUST have unit
+  tests; each product flow MUST have at least one end-to-end test covering the full state
+  machine. Accessibility is checked automatically in end-to-end tests with `axe-core`, and
+  frontend budgets with Lighthouse CI.
 - **Secrets and sensitive material**: credentials, the bank's contract terms, commercial
   negotiations and any bank data MUST NOT be committed. The repository is public; only
   specifications, code and synthetic test data belong in it.
@@ -157,8 +255,13 @@ beautifully.
   principle MUST be recorded in the plan's complexity tracking with the reason and the simpler
   alternative that was rejected.
 - Every pull request MUST state which specification it implements and MUST include the tests
-  that Principle III and the Testing constraint require. Migrations are reviewed specifically
-  for Oracle compatibility.
+  that Principles III and X and the Testing constraint require. Migrations are reviewed
+  specifically for Oracle compatibility and for the indexes Principle X demands.
+- A feature that changes the API contract MUST regenerate the OpenAPI schema and the frontend
+  client types in the same pull request; a schema diff without a specification change is a
+  defect.
+- Every screen is reviewed against the Principle IX checklist before the feature is declared
+  complete, and the automated accessibility and performance checks MUST pass.
 - Specifications and the glossary are updated in the same pull request as the code that
   depends on them; stale documentation is treated as a defect.
 - Worked examples from Gabriel (real operations with expected results, anonymized) are the
@@ -175,4 +278,4 @@ and every code review verifies compliance with the principles above; complexity 
 justified by a specification is rejected. Runtime development guidance for the AI agent lives
 in `CLAUDE.md` and MUST stay consistent with this document.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-10-06
+**Version**: 1.1.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-10-06
