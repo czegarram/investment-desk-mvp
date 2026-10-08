@@ -25,11 +25,13 @@ specification. Do not write application code for a product whose specification i
   in Python, strings on the API, `decimal.js` in the frontend. Never `float` or JS `number`.
   Every calculation states its rounding rule.
 - **Validation in the domain layer**, never only in the UI. Reference data comes from
-  context-filtered lists. Mandatory controls: position-backed sales, counterparties by
-  product, business-day calendar.
-- **State machine** with the legacy names: created → confirmed → enriched → validated →
-  released. Immutable after enriched. Four roles: trader, desk head, middle office, back
-  office. No physical deletes. Correlativos continue existing sequences and are never reused.
+  context-filtered lists. Mandatory controls: lot-backed sales, counterparties by product,
+  business-day calendar (local + US + currency market). Trade class, issuer, ISIN, currency
+  and coupon derive from the instrument and are stored, never typed.
+- **State machine** with the legacy names and codes: created → confirmed (AE) → enriched (AR)
+  → released (R). No "validated" state: back office reviews and releases in one step.
+  Immutable after enriched. Four roles: trader, desk head, middle office, back office. No
+  physical deletes. Correlativos continue existing sequences and are never reused.
 - **Atomic transactions** with `select_for_update()` for sequence allocation, limit
   consumption and positions. Idempotent write endpoints. Query-count assertions on every
   endpoint. Paginated lists.

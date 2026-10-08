@@ -1,26 +1,26 @@
 <!--
 Sync Impact Report
-- Version change: 1.2.0 → 1.3.0 (MINOR: one principle added, two principles materially
-  expanded, new Product Scope section, roles expanded)
+- Version change: 1.3.0 → 1.4.0 (MINOR: two principles materially clarified with the
+  field-level documentation received on 2026-10-08; no principle added or removed)
 - Modified principles:
-  - IV. Binding Validation and Controlled Inputs → adds the three validations the client
-    institution requires and the legacy lacks: position-backed sales (no short selling),
-    counterparties restricted by product, and non-business-day alerts from the combined
-    holiday calendar.
-  - V. Workflow Integrity and Auditability → adopts the legacy state names (created,
-    confirmed, enriched, validated, released), the four roles, soft and hard warnings,
-    parent/child operations and the instrument lifecycle.
-- Added principles:
-  - XI. Legacy Data Compatibility: field names and semantics that downstream reporting
-    depends on are preserved; new fields are additive.
-- Added sections:
-  - Product Scope & Modules (execution, compliance, settlement; first scope securities)
+  - IV. Binding Validation and Controlled Inputs → position-backed sales are expressed in
+    terms of lots (the purchase operation's System ID); trade class, issuer, ISIN, currency
+    and coupon are derived from the instrument and never typed.
+  - V. Workflow Integrity and Auditability → the "validated" state is removed: back office
+    reviews, sets settlement instructions and releases in one step. States are now created,
+    confirmed (legacy code AE), enriched (AR) and released (R).
+- Added principles: none
+- Added sections: none
 - Removed sections: none
-- Technology Stack changes: roles now include middle office; settlement output format noted.
-- Supporting files added in the same change: docs/README.md, docs/dominio/vision-general.md,
-  docs/glossary.md, CLAUDE.md.
+- Product Scope changes: securities defined as government bonds (trade class GOVT) and
+  agency/supranational bonds (BONOS); deposits are the second product, repos later;
+  pre-trade checks are out of scope (they happen on the trading platform).
+- Supporting files updated in the same change: CLAUDE.md, docs/dominio/vision-general.md,
+  docs/glossary.md (compatibility map filled), docs/ejemplos/ (first worked example).
 - Templates: plan/spec/tasks templates read this file at runtime; no edits required.
-- Follow-up TODOs: none
+- Follow-up TODOs: confirm with the domain owner whether the position limit applies to the
+  issuer, the broker, or both; obtain the accrued-interest formula and rounding mode with
+  worked examples; meaning of G/L Classification.
 -->
 
 # Investment Desk MVP Constitution
@@ -99,9 +99,13 @@ maximum tenor, holiday calendars, position checks) are validation rules under th
 Three validations are mandatory in every product because the client institution requires
 them and the legacy system lacks them:
 
-- **Position-backed sales**: a sale MUST reference a held position (an instrument bought and
-  not yet matured or sold) and MUST NOT exceed its available quantity. Short selling is not
-  permitted.
+- **Position-backed sales**: a sale MUST reference one or more held lots (a lot is a purchase
+  operation, identified by its System ID, of the same instrument, not yet matured and with
+  quantity still unsold) and MUST NOT exceed the available quantity of each lot. Short
+  selling is not permitted.
+- **Derived fields are never typed**: trade class, issuer, ISIN, currency and coupon of an
+  operation come from the selected instrument. They are stored on the operation for
+  downstream compatibility but the user cannot edit them.
 - **Counterparties restricted by product**: each counterparty is authorized for specific
   product types, and only authorized counterparties are selectable for an operation.
 - **Business-day awareness**: the calendar combines the local holidays, the holidays of the
@@ -116,14 +120,16 @@ the fields together. Removing that class of error is a core selling point.
 
 Every operation follows an explicit, specified state machine that keeps the names the desk
 already uses: **created** (editable by its trader), **confirmed** (the trader has finished
-entry; still editable by that trader), **enriched** (approved by the desk head; locked for the
-front office), **validated** (back office has reviewed it and set settlement instructions) and
-**released** (settlement instructions issued). Cancellation and rejection paths are defined by
-each specification. Once enriched an operation is immutable except through the transitions
+entry; still editable by that trader; legacy status code **AE**, awaiting enrich),
+**enriched** (approved by the desk head; locked for the front office; legacy code **AR**,
+awaiting release) and **released** (back office has reviewed the operation, chosen the
+settlement instruction and issued it; legacy code **R**). There is no separate "validated"
+state: back-office review and release are one step. Cancellation and rejection paths are
+defined by each specification. Once enriched an operation is immutable except through the transitions
 the specification allows. Four roles exist and are separated: **trader** (creates, confirms),
 **desk head** (enriches; one per desk), **middle office** (configures limits, warnings and
 calendars; never touches operations) and **back office** (creates and confirms instruments,
-validates and releases operations). Warnings raised by a control are either **hard** (block
+reviews and releases operations). Warnings raised by a control are either **hard** (block
 the transition) or **soft** (recorded and shown, transition allowed); the specification of
 each control MUST state which, and hard is the default. Operations MAY be split into child
 operations (for example to settle in the lot multiples a market requires); the parent is
@@ -283,13 +289,16 @@ specification belongs to exactly one of them:
   platform.
 
 Instrument types are added one at a time, each as its own feature. The first and largest is
-**securities** (bonds and commercial paper), which represents roughly ninety percent of closed
+**securities** (product code SEC: government bonds, trade class GOVT, and agency or
+supranational bonds, trade class BONOS), which represents roughly ninety percent of closed
 operations. The first specification covers buying and selling a security through confirmation
 and enrichment, with the compliance warnings and the settlement module following as separate
-features. Deposits, foreign exchange, repos and futures come after securities, reusing the
-same flow and differing mainly in calculation. Nice-to-have items recorded for later, never
-for the MVP: rule-based settlement instruction defaults, Bloomberg prefill of instruments by
-ISIN, and direct trade import from Bloomberg.
+features. Deposits come second, then repos (a sale-like operation with different settlement
+messages), foreign exchange and futures, reusing the same flow and differing mainly in
+calculation. The system records operations that were already executed on the trading
+platform; pre-trade checks happen on that platform and are out of scope. Nice-to-have items
+recorded for later, never for the MVP: rule-based settlement instruction defaults, Bloomberg
+prefill of instruments by ISIN, and direct trade import from Bloomberg.
 
 ## Technology Stack & Constraints
 
@@ -359,4 +368,4 @@ and every code review verifies compliance with the principles above; complexity 
 justified by a specification is rejected. Runtime development guidance for the AI agent lives
 in `CLAUDE.md` and MUST stay consistent with this document.
 
-**Version**: 1.3.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-10-06
+**Version**: 1.4.0 | **Ratified**: 2026-10-06 | **Last Amended**: 2026-10-08
